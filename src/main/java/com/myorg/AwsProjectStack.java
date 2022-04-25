@@ -1,5 +1,9 @@
 package com.myorg;
 
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
+
 import software.amazon.awscdk.CfnOutput;
 import software.amazon.awscdk.RemovalPolicy;
 import software.amazon.awscdk.Stack;
@@ -12,10 +16,14 @@ import software.amazon.awscdk.services.iam.Effect;
 import software.amazon.awscdk.services.iam.PolicyStatement;
 import software.amazon.awscdk.services.iam.Role;
 import software.amazon.awscdk.services.iam.ServicePrincipal;
+import software.amazon.awscdk.services.lambda.Code;
+import software.amazon.awscdk.services.lambda.Function;
+import software.amazon.awscdk.services.lambda.eventsources.S3EventSource;
 import software.amazon.awscdk.services.s3.Bucket;
+import software.amazon.awscdk.services.s3.EventType;
+import software.amazon.awscdk.services.ses.actions.Lambda;
+import software.amazon.awscdk.services.ses.actions.LambdaInvocationType;
 import software.constructs.Construct;
-// import software.amazon.awscdk.Duration;
-// import software.amazon.awscdk.services.sqs.Queue;
 
 public class AwsProjectStack extends Stack {
 	
@@ -28,25 +36,16 @@ public class AwsProjectStack extends Stack {
     public AwsProjectStack(final Construct scope, final String id, final StackProps props) {
         super(scope, id, props);
 
-        // The code that defines your stack goes here
-
-        // example resource
-        // final Queue queue = Queue.Builder.create(this, "AwsProjectQueue")
-        //         .visibilityTimeout(Duration.seconds(300))
-        //         .build();
-        
-//        Bucket bucket = Bucket.Builder.create(this, imageBucket)
-//                .versioned(true)
-//                .encryption(BucketEncryption.KMS_MANAGED)
-//                .build();
 
         Bucket bucket = Bucket.Builder.create(this, imageBucket).versioned(true).removalPolicy(RemovalPolicy.DESTROY)
 				.autoDeleteObjects(true).build();
 		CfnOutput.Builder.create(this, "MyBucketOutput").description("The Name of the bucket")
 				.value(bucket.getBucketName()).build();
+		CfnOutput.Builder.create(this, "MyBucketOutput1").description("The Arn of the bucket")
+		.value(bucket.getBucketArn()).build();
 		
 		Role role = Role.Builder.create(this, "Role")
-		        .assumedBy(new ServicePrincipal("ec2.amazonaws.com")).build();
+		        .assumedBy(new ServicePrincipal("lambda.amazonaws.com")).build();
 		
 		PolicyStatement policyStatement = new PolicyStatement();
 		policyStatement.setEffect(Effect.ALLOW);
@@ -54,12 +53,6 @@ public class AwsProjectStack extends Stack {
 		policyStatement.addAllResources();
 		role.addToPolicy(policyStatement);
 		
-//		 const table = new dynamodb.Table(this, "cdk-rekn-imagetable", {
-//	            partitionKey: { name: "Image", type: dynamodb.AttributeType.STRING },
-//	            removalPolicy: cdk.RemovalPolicy.DESTROY,
-//	        });
-//	        new cdk.CfnOutput(this, "Table", { value: table.tableName });
-//		
 		TableProps tableProps;
 		Attribute partitionKey = Attribute.builder().name("Image").type(AttributeType.STRING).build();
 		tableProps = TableProps.builder().tableName("cdk-rekn-imagetable").partitionKey(partitionKey)
@@ -70,6 +63,26 @@ public class AwsProjectStack extends Stack {
 				// DESTROY, cdk destroy will delete the table (even if it has data in it)
 				.removalPolicy(RemovalPolicy.DESTROY).build();
 		Table dynamodbTable = new Table(this, "cdk-rekn-imagetable", tableProps);
+		
+		
+		Map<String, String> environment = new HashMap<>();
+		environment.put("TABLE", dynamodbTable.getTableName());
+		environment.put("BUCKET", bucket.getBucketName());
+
+		Function function = Function.Builder.create(this, "cdk-rekn-function")
+				.runtime(software.amazon.awscdk.services.lambda.Runtime.PYTHON_3_8).handler("index.handler")
+				.role(role)
+				.code(Code.fromAsset("src\\main\\java\\com\\myorg\\lambda")).environment(environment).build();
+		
+		function.addEventSource(S3EventSource.Builder.create(bucket)
+		         .events(Arrays.asList(EventType.OBJECT_CREATED))
+		         .build());
+
+		Lambda.Builder.create().function(function)
+				.invocationType(LambdaInvocationType.EVENT).build();
+
+		bucket.grantReadWrite(function);
+		dynamodbTable.grantFullAccess(function);
 		
     }
 }

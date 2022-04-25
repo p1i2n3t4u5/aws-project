@@ -4,12 +4,9 @@ import software.amazon.awscdk.App;
 import software.amazon.awscdk.Environment;
 import software.amazon.awscdk.StackProps;
 
-import java.util.Arrays;
-
 public class AwsProjectApp {
     public static void main(final String[] args) {
         App app = new App();
-      System.out.println("Started");
         new AwsProjectStack(app, "AwsProjectStack", StackProps.builder()
                 // If you don't specify 'env', this stack will be environment-agnostic.
                 // Account/Region-dependent features and context lookups will not work,
